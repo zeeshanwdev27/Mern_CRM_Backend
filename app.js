@@ -8,6 +8,7 @@ import departmentRoutes from './routes/departmentRoutes.js';  // Add this
 import contactsRoutes from "./routes/contactsRoutes.js"
 import clientsRoutes from "./routes/clientsRoutes.js"
 import projectsRoutes from "./routes/projectsRoutes.js"
+import taskRoutes from "./routes/tasksRoutes.js"
 
 import cors from 'cors'
 import './models/index.js';
@@ -26,6 +27,7 @@ app.use('/api/departments', departmentRoutes);  // Add this
 app.use("/api/contacts", contactsRoutes)
 app.use("/api/clients", clientsRoutes)
 app.use("/api/projects", projectsRoutes)
+app.use('/api/tasks', taskRoutes);
 
 
 app.get("/", (req, res) => res.send("Hello World"));

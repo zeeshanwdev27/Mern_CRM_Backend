@@ -68,10 +68,11 @@ export const addUser = async (req, res) => {
 
 export const allUsers = async (req, res) => {
     try {
-        const users = await User.find({})
+        const users = await User.find()
             .select('-password')
             .populate("role")
-            .populate("department");
+            .populate("department")
+            .then(users => users.filter(user => user.role?.name !== "Administrator"));
 
         res.status(200).json({
             status: "success",
