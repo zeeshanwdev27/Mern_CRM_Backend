@@ -72,7 +72,7 @@ export const allUsers = async (req, res) => {
             .select('-password')
             .populate("role")
             .populate("department")
-            .then(users => users.filter(user => user.role?.name !== "Administrator"));
+            // .then(users => users.filter(user => user.role?.name !== "Administrator"));
 
         res.status(200).json({
             status: "success",
