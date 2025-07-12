@@ -10,6 +10,7 @@ import clientsRoutes from "./routes/clientsRoutes.js"
 import projectsRoutes from "./routes/projectsRoutes.js"
 import taskRoutes from "./routes/tasksRoutes.js"
 import invoiceRoutes from "./routes/invoiceRoutes.js"
+import companyRoutes from "./routes/companyRoutes.js"
 
 import cors from 'cors'
 import './models/index.js';
@@ -30,6 +31,7 @@ app.use("/api/clients", clientsRoutes)
 app.use("/api/projects", projectsRoutes)
 app.use('/api/tasks', taskRoutes);
 app.use('/api/invoices', invoiceRoutes);
+app.use('/api/company', companyRoutes);
 
 
 app.get("/", (req, res) => res.send("Hello World"));
