@@ -1,18 +1,18 @@
 import express from 'express'
 import asyncHandler from "express-async-handler"
-import { protect, admin } from '../middlewares/authMiddleware.js'
+import { protect, admin, adminOrManager } from '../middlewares/authMiddleware.js'
 import {addUser, allUsers, deleteUser, updateUser, getUserById  } from '../controllers/userController.js'
 
 
 const router = express.Router()
+router.use(protect)
 
+router.post('/adduser', adminOrManager, asyncHandler(addUser))
+router.get("/allusers", adminOrManager, asyncHandler(allUsers))
+router.delete("/:id", adminOrManager, asyncHandler(deleteUser))
+router.put("/:id", adminOrManager, asyncHandler(updateUser))
 
-router.post('/adduser', protect, admin, asyncHandler(addUser))
-router.get("/allusers", protect, admin, asyncHandler(allUsers))
-router.delete("/:id", protect, admin, asyncHandler(deleteUser))
-router.put("/:id", protect, admin, asyncHandler(updateUser))
-
-router.get("/:id", protect, admin, asyncHandler(getUserById)); 
+router.get("/:id", adminOrManager, asyncHandler(getUserById)); 
 
 
 export default router

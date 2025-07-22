@@ -1,11 +1,13 @@
 import express from 'express';
 import { getDepartments, createDepartment, deleteDepartment  } from '../controllers/departmentController.js';
-import { protect, admin } from '../middlewares/authMiddleware.js';
+import { protect, admin, adminOrManager} from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
+router.use(protect)
 
-router.get('/', protect, admin, getDepartments);
-router.post('/', protect, admin, createDepartment);
-router.delete('/:id', protect, admin, deleteDepartment);
+
+router.get('/', adminOrManager, getDepartments);
+router.post('/', adminOrManager, createDepartment);
+router.delete('/:id', adminOrManager, deleteDepartment);
 
 export default router;

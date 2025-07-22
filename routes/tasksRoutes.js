@@ -9,12 +9,16 @@ import {
   unassignUser,
   updateStatus
 } from '../controllers/tasksController.js';
+import {protect, adminOrManager} from "../middlewares/authMiddleware.js"
 
 const router = express.Router();
 
+router.use(protect);
+
+
 router.route('/')
   .post(asyncHandler(createTask))
-  .get(asyncHandler(getTasks));
+  .get( adminOrManager, asyncHandler(getTasks));
 
 router.route('/:id')
   .put(asyncHandler(updateTask))

@@ -3,10 +3,10 @@ import {getAdminData, updateAdminAccount} from "../controllers/SettingsAccountCo
 import { protect, admin } from '../middlewares/authMiddleware.js'
 
 const router = express.Router()
+router.use(protect)
 
-
-router.get('/', protect, admin, getAdminData)
-router.put('/update', protect, admin, updateAdminAccount)
+router.get('/', admin , getAdminData)
+router.put('/update', admin, updateAdminAccount)
 
 
 export default router
