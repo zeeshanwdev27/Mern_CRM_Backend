@@ -1,6 +1,6 @@
 import express from 'express'
 import {addInvoice, getInvoices, deleteInvoice, markAsPaid, getInvoiceForPrinting} from "../controllers/invoiceController.js"
-import {protect, adminOrManager} from "../middlewares/authMiddleware.js"
+import {protect, projectManager, adminManagerProjectManager} from "../middlewares/authMiddleware.js"
 
 const router = express.Router();
 
@@ -8,16 +8,16 @@ const router = express.Router();
 router.use(protect);
 
 
-router.get('/', adminOrManager, getInvoices)
+router.get('/', adminManagerProjectManager, getInvoices)
 
 
-router.post('/create', addInvoice)
+router.post('/create', projectManager, addInvoice)
 
-router.delete('/:id', deleteInvoice)
+router.delete('/:id', projectManager, deleteInvoice)
 
-router.patch('/:id', markAsPaid)
+router.patch('/:id', projectManager, markAsPaid)
 
-router.get('/:id/print', getInvoiceForPrinting)
+router.get('/:id/print', projectManager, getInvoiceForPrinting)
 
 
 export default router;

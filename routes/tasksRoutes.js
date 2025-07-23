@@ -9,7 +9,7 @@ import {
   unassignUser,
   updateStatus
 } from '../controllers/tasksController.js';
-import {protect, adminOrManager} from "../middlewares/authMiddleware.js"
+import {protect, adminManagerProjectManager, projectManager} from "../middlewares/authMiddleware.js"
 
 const router = express.Router();
 
@@ -17,20 +17,20 @@ router.use(protect);
 
 
 router.route('/')
-  .post(asyncHandler(createTask))
-  .get( adminOrManager, asyncHandler(getTasks));
+  .post( projectManager, asyncHandler(createTask))
+  .get( adminManagerProjectManager, asyncHandler(getTasks));
 
 router.route('/:id')
-  .put(asyncHandler(updateTask))
-  .delete(asyncHandler(deleteTask));
+  .put( projectManager, asyncHandler(updateTask))
+  .delete(projectManager, asyncHandler(deleteTask));
 
 router.route('/:id/assign')
-  .patch(asyncHandler(assignUser));
+  .patch(projectManager, asyncHandler(assignUser));
 
 router.route('/:id/unassign')
-  .patch(asyncHandler(unassignUser));
+  .patch(projectManager, asyncHandler(unassignUser));
 
 router.route('/:id/status')
-  .patch(asyncHandler(updateStatus));
+  .patch(projectManager, asyncHandler(updateStatus));
 
 export default router;
