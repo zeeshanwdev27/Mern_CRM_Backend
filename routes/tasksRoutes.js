@@ -9,7 +9,7 @@ import {
   unassignUser,
   updateStatus
 } from '../controllers/tasksController.js';
-import {protect, adminManagerProjectManager, projectManager} from "../middlewares/authMiddleware.js"
+import {protect, adminManagerProjectManager, projectManager, developer} from "../middlewares/authMiddleware.js"
 
 const router = express.Router();
 
@@ -31,6 +31,6 @@ router.route('/:id/unassign')
   .patch(projectManager, asyncHandler(unassignUser));
 
 router.route('/:id/status')
-  .patch(projectManager, asyncHandler(updateStatus));
+  .patch(developer, asyncHandler(updateStatus));
 
 export default router;

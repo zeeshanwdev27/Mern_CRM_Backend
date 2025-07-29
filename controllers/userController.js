@@ -163,8 +163,8 @@ export const getUserById = async (req, res) => {
         const user = await User.findById(req.params.id)
             .select('-password')
             .populate('role')
-            .populate('department');
-        
+            .populate('department')
+
         if (!user) {
             return res.status(404).json({ 
                 status: "error",
@@ -183,4 +183,65 @@ export const getUserById = async (req, res) => {
             message: error.message || 'Failed to fetch user' 
         });
     }
+};
+
+
+
+export const getuserwithProject = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id)
+      .select('-password')
+      .populate('role')
+      .populate('department')
+      .populate({
+        path: 'assignedProjects',
+        populate: [
+          { path: 'client', select: 'name email projects' },
+          { path: 'team', select: 'name email' }
+        ]
+      })
+      .populate({
+        path: 'assignedTasks',
+        select: 'title description status priority startDate dueDate tags',
+      })
+
+    if (!user) {
+      return res.status(404).json({
+        status: "error",
+        message: 'User not found'
+      });
+    }
+
+    // Enrich assignedProjects with matching clientProject data
+    const enrichedProjects = user.assignedProjects.map(project => {
+      const client = project.client;
+      const clientProject = client?.projects?.find(p =>
+        p._id.toString() === project.clientProjectId.toString()
+      );
+
+      return {
+        ...project.toObject(),
+        clientProject: clientProject || null
+      };
+    });
+
+    // Convert user to plain object and override assignedProjects
+    const userObj = user.toObject();
+    userObj.assignedProjects = enrichedProjects;
+
+    // No need to enrich tasks unless you have specific requirements
+    // Tasks are already populated with the fields you selected
+
+    res.status(200).json({
+      status: "success",
+      message: "User successfully fetched",
+      data: userObj
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message || 'Failed to fetch user'
+    });
+  }
 };

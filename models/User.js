@@ -95,13 +95,28 @@ const userSchema = new mongoose.Schema(
 
 // Virtuals and methods remain the same
 
-// userSchema.virtual('formattedJoinDate').get(function() {
-//   return this.joinDate.toISOString().split('T')[0];
-// });
 userSchema.virtual('formattedJoinDate').get(function() {
   return this.joinDate ? this.joinDate.toISOString().split('T')[0] : null;
 });
 
+
+// Projects Virtual field to show assigned project to user
+userSchema.virtual('assignedProjects', {
+  ref: 'Project',
+  localField: '_id',
+  foreignField: 'team',
+});
+
+
+// Tasks Virtual field to show assignee tasks to user
+userSchema.virtual('assignedTasks', {
+  ref: 'Task',
+  localField: '_id',
+  foreignField: 'assignees',
+});
+
+
+// Encrypted Password Pre Method
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
   const salt = await bcrypt.genSalt(10);

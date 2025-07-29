@@ -63,5 +63,6 @@ const sales = roleCheck(['Sales']);
 const adminOrManager = roleCheck(['Administrator', 'Manager'])
 const salesOrProjectManager = roleCheck(['Sales', 'Project Manager']);
 const adminManagerProjectManager = roleCheck(['Administrator', 'Manager', 'Project Manager']);
+const adminManagerDeveloper = roleCheck(['Administrator', 'Manager', 'Developer']);
 
-export { protect, salesOrProjectManager, adminManagerProjectManager, adminOrManager, admin, sales, projectManager, qaEngineer, developer, designer, roleCheck, manager };
+export { protect, adminManagerDeveloper, salesOrProjectManager, adminManagerProjectManager, adminOrManager, admin, sales, projectManager, qaEngineer, developer, designer, roleCheck, manager };
