@@ -6,40 +6,46 @@ const projectSchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: ["high", "medium", "low"],
-      default: "high",
+      default: "medium",
     },
     client: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Client",
       required: true,
     },
-    clientProjectId: {
-      type: mongoose.Schema.Types.ObjectId,
-      required: true,
-      validate: {
-        validator: async function (value) {
-          const client = await mongoose.model("Client").findById(this.client);
-          return (
-            client &&
-            client.projects.some((project) => project._id.equals(value))
-          );
+    clientProjects: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true,
+        validate: {
+          validator: async function (value) {
+            if (!this.client) return false;
+
+            // Skip validation during update - we handle it in controller
+            if (this.isModified() && this.isModified("clientProjects")) {
+              return true;
+            }
+
+            const client = await mongoose
+              .model("Client")
+              .findById(this.client)
+              .select("projects");
+
+            if (!client) return false;
+
+            return client.projects.some((p) => String(p._id) === String(value));
+          },
+          message: (props) =>
+            `Project ${props.value} does not belong to the client`,
         },
-        message: "Invalid client project ID",
       },
-    },
+    ],
     status: {
       type: String,
       required: true,
       enum: ["active", "hold", "completed"],
       default: "active",
     },
-    team: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-        required: true,
-      },
-    ],
     startDate: {
       type: Date,
       required: true,
@@ -49,8 +55,12 @@ const projectSchema = new mongoose.Schema(
       type: Date,
       required: true,
       validate: {
-        validator: function () {
-          return this.deadline > this.startDate;
+        validator: function (value) {
+          // Skip validation during update - we handle it in controller
+          if (this.isModified() && this.isModified("deadline")) {
+            return true;
+          }
+          return value > this.startDate;
         },
         message: "Deadline must be after start date",
       },
@@ -58,7 +68,7 @@ const projectSchema = new mongoose.Schema(
     progress: {
       type: Number,
       required: true,
-      default: 10,
+      default: 0,
       min: [0, "Progress cannot be negative"],
       max: [100, "Progress cannot exceed 100"],
     },
@@ -67,6 +77,11 @@ const projectSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+// Add index for better query performance
+projectSchema.index({ client: 1 });
+projectSchema.index({ status: 1 });
+projectSchema.index({ deadline: 1 });
 
 const Project = mongoose.model("Project", projectSchema);
 
