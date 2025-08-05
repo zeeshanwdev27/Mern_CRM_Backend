@@ -1,7 +1,18 @@
 import mongoose from "mongoose";
 
+
 const projectSchema = new mongoose.Schema(
   {
+    name: {  // Add project name
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: [100, "Project name cannot exceed 100 characters"]
+    },
+    description: {  // Add project description
+      type: String,
+      trim: true
+    },
     priority: {
       type: String,
       required: true,
@@ -20,19 +31,14 @@ const projectSchema = new mongoose.Schema(
         validate: {
           validator: async function (value) {
             if (!this.client) return false;
-
-            // Skip validation during update - we handle it in controller
             if (this.isModified() && this.isModified("clientProjects")) {
               return true;
             }
-
             const client = await mongoose
               .model("Client")
               .findById(this.client)
               .select("projects");
-
             if (!client) return false;
-
             return client.projects.some((p) => String(p._id) === String(value));
           },
           message: (props) =>
@@ -40,6 +46,17 @@ const projectSchema = new mongoose.Schema(
         },
       },
     ],
+    team: [{  // Add team members field
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      validate: {
+        validator: async function(userId) {
+          const user = await mongoose.model("User").findById(userId);
+          return user && user.status === "Active";
+        },
+        message: "Team member must be an active user"
+      }
+    }],
     status: {
       type: String,
       required: true,
@@ -56,7 +73,6 @@ const projectSchema = new mongoose.Schema(
       required: true,
       validate: {
         validator: function (value) {
-          // Skip validation during update - we handle it in controller
           if (this.isModified() && this.isModified("deadline")) {
             return true;
           }
@@ -72,13 +88,20 @@ const projectSchema = new mongoose.Schema(
       min: [0, "Progress cannot be negative"],
       max: [100, "Progress cannot exceed 100"],
     },
+    createdBy: {  // Track who created the project
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true
+    }
   },
   {
     timestamps: true,
   }
 );
 
-// Add index for better query performance
+// Add more indexes for better performance
+projectSchema.index({ team: 1 });
+projectSchema.index({ createdBy: 1 });
 projectSchema.index({ client: 1 });
 projectSchema.index({ status: 1 });
 projectSchema.index({ deadline: 1 });

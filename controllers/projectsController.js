@@ -1,168 +1,143 @@
-import Project from "../models/Projects.js"
+import Project from "../models/Projects.js";
 import asyncHandler from "express-async-handler";
-import mongoose from "mongoose"
-import Client from "../models/Clients.js"
+import mongoose from "mongoose";
+import Client from "../models/Clients.js";
+import User from "../models/User.js";
 
+// Helper function to transform project data
+const transformProjectData = (project) => {
+  const clientProjectsDetails = project.clientProjects.map(cp => ({
+    id: cp._id,
+    name: cp.name,
+    value: cp.value || 0
+  }));
 
+  return {
+    _id: project._id,
+    name: project.name,
+    description: project.description,
+    client: {
+      _id: project.client?._id,
+      name: project.client?.name || 'Unknown Client'
+    },
+    clientProjects: clientProjectsDetails,
+    team: project.team || [],
+    status: project.status === "hold" ? "on hold" : project.status,
+    startDate: project.startDate,
+    deadline: project.deadline,
+    progress: project.progress,
+    priority: project.priority,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt
+  };
+};
+
+// Get all projects
 export const getProjects = asyncHandler(async (req, res) => {
-    const projects = await Project.find()
-        .populate({
-            path: 'client',
-            select: 'name projects',
-            populate: {
-                path: 'projects',
-                select: 'name value' // Include any other fields you need from client projects
-            }
-        })
-        .populate({
-            path: 'clientProjects',
-            select: 'name value' // Include any other fields you need from client projects
-        })
-        .lean(); // Convert to plain JavaScript objects
+  const projects = await Project.find()
+    .populate('client', 'name')
+    .populate('clientProjects', 'name value')
+    .populate('team', 'name role')
+    .lean();
 
-    // Transform the data structure for frontend
-    const transformedProjects = projects.map(project => {
-        // Get all client project names and values
-        const clientProjectsDetails = project.clientProjects.map(cp => ({
-            id: cp._id,
-            name: cp.name,
-            value: cp.value || 0
-        }));
-
-        return {
-            _id: project._id,
-            client: {
-                _id: project.client?._id,
-                name: project.client?.name || 'Unknown Client'
-            },
-            clientProjects: clientProjectsDetails,
-            status: project.status,
-            startDate: project.startDate,
-            deadline: project.deadline,
-            progress: project.progress,
-            priority: project.priority,
-            createdAt: project.createdAt,
-            updatedAt: project.updatedAt
-        };
-    });
-
-    res.json(transformedProjects);
+  res.json(projects.map(transformProjectData));
 });
 
-
+// Create new project
 export const createProject = asyncHandler(async (req, res) => {
-    const {
-        priority,
-        client,
-        clientProjects,  // Now an array of project IDs
-        status,
-        startDate,
-        deadline,
-    } = req.body;
+  const {
+    name,
+    description,
+    priority,
+    client,
+    clientProjects,
+    status,
+    startDate,
+    deadline,
+    team = [] // Default empty team
+  } = req.body;
 
-    // Validate that at least one client project is selected
-    if (!clientProjects || clientProjects.length === 0) {
-        res.status(400);
-        throw new Error("At least one client project must be selected");
+  // Basic validations
+  if (!name) {
+    res.status(400);
+    throw new Error("Project name is required");
+  }
+
+  if (!clientProjects?.length) {
+    res.status(400);
+    throw new Error("At least one client project must be selected");
+  }
+
+  // Validate client exists
+  const clientDoc = await Client.findById(client);
+  if (!clientDoc) {
+    res.status(404);
+    throw new Error("Client not found");
+  }
+
+  // Validate client projects
+  const invalidProjects = clientProjects.filter(projectId => 
+    !clientDoc.projects.some(p => p._id.equals(projectId))
+  );
+
+  if (invalidProjects.length > 0) {
+    res.status(400);
+    throw new Error(`Invalid client projects: ${invalidProjects.join(', ')}`);
+  }
+
+  // Validate team members (if any)
+  if (team.length > 0) {
+    const users = await User.find({ _id: { $in: team }});
+    const inactiveUsers = users.filter(u => u.status !== 'Active');
+    if (inactiveUsers.length > 0) {
+      res.status(400);
+      throw new Error(`Cannot add inactive users: ${inactiveUsers.map(u => u._id).join(', ')}`);
     }
+  }
 
-    // Validate deadline is after start date
-    if (new Date(deadline) <= new Date(startDate)) {
-        res.status(400);
-        throw new Error("Deadline must be after start date");
-    }
+  // Create project
+  const newProject = new Project({
+    name,
+    description,
+    priority,
+    client,
+    clientProjects,
+    team,
+    status,
+    startDate,
+    deadline,
+    progress: 0,
+    createdBy: req.user._id
+  });
 
-    // Verify all client projects belong to the specified client
-    const clientDoc = await Client.findById(client);
-    if (!clientDoc) {
-        res.status(404);
-        throw new Error("Client not found");
-    }
-
-    const invalidProjects = clientProjects.filter(projectId => 
-        !clientDoc.projects.some(p => p._id.equals(projectId))
-    );
-
-    if (invalidProjects.length > 0) {
-        res.status(400);
-        throw new Error(`The following projects don't belong to the client: ${invalidProjects.join(', ')}`);
-    }
-
-    const newProject = new Project({
-        priority,
-        client,
-        clientProjects,  // Array of project IDs
-        status,
-        startDate,
-        deadline,
-        progress: 0,  // Default to 0% progress for new projects
-    });
-
-    const savedProject = await newProject.save();
-    
-    // Optionally: Update client's projects with references to this project
-    // await Client.findByIdAndUpdate(client, {
-    //     $addToSet: { projects: { $each: clientProjects.map(pid => ({ _id: pid, project: savedProject._id })) }
-    // });
-
-    res.status(201).json({
-        _id: savedProject._id,
-        priority: savedProject.priority,
-        client: savedProject.client,
-        clientProjects: savedProject.clientProjects,
-        status: savedProject.status,
-        startDate: savedProject.startDate,
-        deadline: savedProject.deadline,
-        progress: savedProject.progress,
-        createdAt: savedProject.createdAt,
-    });
+  const savedProject = await newProject.save();
+  res.status(201).json(transformProjectData(savedProject));
 });
 
-
-export const deleteProject = asyncHandler(async(req, res) => {
+// Get specific project
+export const getSpecificProject = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  
+
   if (!mongoose.isValidObjectId(id)) {
     res.status(400);
     throw new Error("Invalid project ID format");
   }
 
-  const existProject = await Project.findById(id);
+  const project = await Project.findById(id)
+    .populate('client', 'name')
+    .populate('clientProjects', 'name value')
+    .populate('team', 'name role')
+    .populate('createdBy', 'name');
 
-  if (!existProject) {
+  if (!project) {
     res.status(404);
-    throw new Error("Project doesn't exist");
+    throw new Error("Project not found");
   }
 
-  await Project.findByIdAndDelete(id);
-  
-  res.status(200).json({
-    status: "success",
-    message: "Project successfully deleted"
-  });
+  res.status(200).json(transformProjectData(project));
 });
 
-
-export const getSpecificProject = asyncHandler(async(req,res)=>{
-  const {id} = req.params
-
-    if (!mongoose.isValidObjectId(id)) {
-    res.status(400);
-    throw new Error("Invalid project ID format");
-  }
-
-    const response = await Project.findById(id);
-  if (!response) {
-    res.status(404);
-    throw new Error("Project doesn't exist");
-  }
-
-  res.status(200).json({
-    data : response
-  })
-})
-
-
+// Update project
 export const updateProject = asyncHandler(async (req, res) => {
   const { id } = req.params;
   
@@ -171,85 +146,158 @@ export const updateProject = asyncHandler(async (req, res) => {
     throw new Error("Invalid project ID format");
   }
 
-  const existProject = await Project.findById(id);
-  if (!existProject) {
+  const project = await Project.findById(id);
+  if (!project) {
     res.status(404);
-    throw new Error("Project doesn't exist");
+    throw new Error("Project not found");
   }
 
-  const { priority, client, clientProjects, status, startDate, deadline, progress } = req.body;
+  const { 
+    name,
+    description,
+    priority, 
+    client, 
+    clientProjects, 
+    status, 
+    startDate, 
+    deadline, 
+    progress 
+  } = req.body;
 
-  // Convert dates and add buffer to deadline
+  // Validate dates
   const start = new Date(startDate);
-  let end = new Date(deadline);
-  
-  // Ensure deadline is at least 1ms after start date
+  const end = new Date(deadline);
   if (end <= start) {
-    end = new Date(start.getTime() + 1);
+    res.status(400);
+    throw new Error("Deadline must be after start date");
   }
 
-  // Verify client exists and get fresh data
-  const clientDoc = await Client.findById(client).select('projects');
-  if (!clientDoc) {
-    res.status(404);
-    throw new Error("Client not found");
-  }
+  // Validate client projects if being updated
+  if (clientProjects) {
+    const clientDoc = await Client.findById(client).select('projects');
+    if (!clientDoc) {
+      res.status(404);
+      throw new Error("Client not found");
+    }
 
-  // Validate client projects by string comparison
-  const invalidProjects = [];
-  const validProjects = [];
-
-  for (const projectId of clientProjects) {
-    const projectExists = clientDoc.projects.some(p => 
-      String(p._id) === String(projectId)
+    const invalidProjects = clientProjects.filter(projectId => 
+      !clientDoc.projects.some(p => p._id.equals(projectId))
     );
 
-    if (projectExists) {
-      validProjects.push(new mongoose.Types.ObjectId(projectId));
-    } else {
-      invalidProjects.push(projectId);
+    if (invalidProjects.length > 0) {
+      res.status(400);
+      throw new Error(`Invalid client projects: ${invalidProjects.join(', ')}`);
     }
   }
 
-  if (invalidProjects.length > 0) {
-    res.status(400);
-    throw new Error(`Invalid client projects: ${invalidProjects.join(', ')}`);
-  }
-
-  // Perform update with disabled validation (we've already validated)
+  // Update project
   const updatedProject = await Project.findByIdAndUpdate(
     id,
     {
+      name,
+      description,
       priority,
       client,
-      clientProjects: validProjects,
+      clientProjects,
       status: status === "on hold" ? "hold" : status,
       startDate: start,
       deadline: end,
       progress,
+      lastUpdatedBy: req.user._id
     },
-    { 
-      new: true,
-      runValidators: false // We've done our own validation
-    }
-  ).populate('client', 'name')
-   .populate('clientProjects', 'name');
+    { new: true }
+  )
+  .populate('client', 'name')
+  .populate('clientProjects', 'name value')
+  .populate('team', 'name role');
 
-  if (!updatedProject) {
+  res.status(200).json(transformProjectData(updatedProject));
+});
+
+// Delete project
+export const deleteProject = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  
+  if (!mongoose.isValidObjectId(id)) {
+    res.status(400);
+    throw new Error("Invalid project ID format");
+  }
+
+  const project = await Project.findByIdAndDelete(id);
+  
+  if (!project) {
     res.status(404);
-    throw new Error("Project not found after update");
+    throw new Error("Project not found");
   }
 
   res.status(200).json({
-    _id: updatedProject._id,
-    client: updatedProject.client,
-    clientProjects: updatedProject.clientProjects,
-    priority: updatedProject.priority,
-    status: updatedProject.status === "hold" ? "on hold" : updatedProject.status,
-    startDate: updatedProject.startDate,
-    deadline: updatedProject.deadline,
-    progress: updatedProject.progress,
-    createdAt: updatedProject.createdAt,
-    updatedAt: updatedProject.updatedAt
+    status: "success",
+    message: "Project deleted successfully"
+  });
+});
+
+// Add team members to project
+export const addTeamMembers = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { userIds } = req.body;
+
+  if (!userIds?.length) {
+    res.status(400);
+    throw new Error("At least one user ID is required");
+  }
+
+  // Validate users exist and are active
+  const users = await User.find({ 
+    _id: { $in: userIds },
+    status: 'Active'
+  });
+
+  if (users.length !== userIds.length) {
+    const foundIds = users.map(u => u._id.toString());
+    const missingIds = userIds.filter(id => !foundIds.includes(id));
+    res.status(400);
+    throw new Error(`Invalid or inactive users: ${missingIds.join(', ')}`);
+  }
+
+  // Add to project team (avoid duplicates)
+  const project = await Project.findByIdAndUpdate(
+    id,
+    {
+      $addToSet: { team: { $each: userIds } }
+    },
+    { new: true }
+  ).populate('team', 'name role');
+
+  if (!project) {
+    res.status(404);
+    throw new Error("Project not found");
+  }
+
+  res.status(200).json({
+    team: project.team,
+    message: "Team members added successfully"
+  });
+});
+
+// Remove team member from project
+export const removeTeamMember = asyncHandler(async (req, res) => {
+  const { id, userId } = req.params;
+
+  const project = await Project.findByIdAndUpdate(
+    id,
+    {
+      $pull: { team: userId }
+    },
+    { new: true }
+  ).populate('team', 'name role');
+
+  if (!project) {
+    res.status(404);
+    throw new Error("Project not found");
+  }
+
+  res.status(200).json({
+    team: project.team,
+    message: "Team member removed successfully"
   });
 });

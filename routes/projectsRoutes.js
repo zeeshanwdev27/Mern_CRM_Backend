@@ -1,16 +1,33 @@
 import express from 'express';
-import {  getProjects, createProject, deleteProject, updateProject, getSpecificProject } from "../controllers/projectsController.js"
+import { 
+  getProjects, 
+  createProject, 
+  deleteProject, 
+  updateProject, 
+  getSpecificProject,
+  addTeamMembers,
+  removeTeamMember
+} from "../controllers/projectsController.js"
 import { protect, projectManager, adminManagerProjectManager } from "../middlewares/authMiddleware.js"
-
 
 const router = express.Router();
 
 router.use(protect);
 
+// Get all projects
 router.get("/getprojects", adminManagerProjectManager, getProjects)
-router.delete("/:id", projectManager, deleteProject)
+
+// Create new project
 router.post("/addproject", projectManager, createProject)
-router.put('/:id', projectManager, updateProject)
-router.get("/:id", projectManager, getSpecificProject)
+
+// Project-specific routes
+router.route("/:id")
+  .get(projectManager, getSpecificProject)
+  .put(projectManager, updateProject)
+  .delete(projectManager, deleteProject);
+
+// Team management routes
+router.post("/:id/team", projectManager, addTeamMembers);
+router.delete("/:id/team/:userId", projectManager, removeTeamMember);
 
 export default router;
