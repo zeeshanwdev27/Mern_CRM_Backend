@@ -1,13 +1,33 @@
 import mongoose from "mongoose";
+import fs from 'fs';
+import path from 'path';
+
+const fileSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true
+  },
+  path: {
+    type: String,
+    required: true
+  },
+  size: {
+    type: Number,
+    required: true
+  },
+  mimetype: {
+    type: String,
+    required: true
+  },
+  uploadedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true
+  }
+}, { timestamps: true, _id: true });
 
 const taskSchema = new mongoose.Schema(
   {
-    title: {
-      type: String,
-      required: [true, "Task title is required"],
-      trim: true,
-      maxlength: [100, "Task title cannot exceed 100 characters"]
-    },
     description: {
       type: String,
       trim: true
@@ -51,30 +71,32 @@ const taskSchema = new mongoose.Schema(
         message: "Due date must be after start date and within project deadline"
       }
     },
-    assignees: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+    includeTime: {
+      type: Boolean,
+      default: false
+    },
+    assignees: {
+      type: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User"
+      }],
       required: [true, "At least one assignee is required"],
       validate: {
         validator: async function(assignees) {
-          if (!this.project) return true; // Skip if project not set yet
-          const project = await mongoose.model("Project").findById(this.project);
+          if (!this.project) return true;
+          const project = await mongoose.model("Project").findById(this.project).select('team');
           return assignees.every(assignee => 
-            project.team && project.team.includes(assignee)
+            project.team.some(teamMember => teamMember.equals(assignee))
           );
         },
         message: "All assignees must be part of the project team"
       }
-    }],
-    tags: {
-      type: [String],
-      validate: {
-        validator: function(tags) {
-          return tags && tags.length > 0;
-        },
-        message: "At least one tag is required"
-      }
     },
+  tags: {
+    type: [String],
+    required: false 
+  },
+    files: [fileSchema],
     completedAt: {
       type: Date
     },
@@ -111,30 +133,25 @@ taskSchema.index({ status: 1 });
 taskSchema.index({ priority: 1 });
 taskSchema.index({ dueDate: 1 });
 
-// Middleware to validate before saving
-taskSchema.pre('save', async function(next) {
-  if (this.isModified('assignees') || this.isModified('project')) {
-    try {
-      // Validate assignees are part of project team
-      const project = await mongoose.model("Project").findById(this.project);
-      if (!project) {
-        throw new Error('Project not found');
+// Middleware to ensure assignees is always an array
+taskSchema.pre('save', function(next) {
+  if (this.assignees && !Array.isArray(this.assignees)) {
+    this.assignees = [this.assignees];
+  }
+  next();
+});
+
+// Clean up files when task is deleted
+taskSchema.pre('remove', async function(next) {
+  try {
+    await Promise.all(this.files.map(async (file) => {
+      if (fs.existsSync(file.path)) {
+        fs.unlinkSync(file.path);
       }
-      
-      const invalidAssignees = this.assignees.filter(assignee => 
-        !project.team.includes(assignee)
-      );
-      
-      if (invalidAssignees.length > 0) {
-        throw new Error(`Users ${invalidAssignees.join(', ')} are not part of the project team`);
-      }
-      
-      next();
-    } catch (error) {
-      next(error);
-    }
-  } else {
+    }));
     next();
+  } catch (error) {
+    next(error);
   }
 });
 

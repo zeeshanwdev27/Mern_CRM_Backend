@@ -44,6 +44,7 @@ export const getProjects = asyncHandler(async (req, res) => {
 });
 
 // Create new project
+
 export const createProject = asyncHandler(async (req, res) => {
   const {
     name,
@@ -125,16 +126,38 @@ export const getSpecificProject = asyncHandler(async (req, res) => {
 
   const project = await Project.findById(id)
     .populate('client', 'name')
-    .populate('clientProjects', 'name value')
-    .populate('team', 'name role')
-    .populate('createdBy', 'name');
+    .populate('team', 'name email role status')
+    .populate('createdBy', 'name')
+    .lean();
 
   if (!project) {
     res.status(404);
     throw new Error("Project not found");
   }
 
-  res.status(200).json(transformProjectData(project));
+  // Get the client to access its projects array
+  const client = await Client.findById(project.client)
+    .select('projects')
+    .lean();
+
+  // Map the clientProjects to include the actual project data
+  const clientProjectsWithDetails = project.clientProjects.map(cpId => {
+    const clientProject = client.projects.find(p => p._id.equals(cpId));
+    return {
+      _id: cpId,
+      name: clientProject?.name || 'Unknown Project',
+      value: clientProject?.value || 0
+    };
+  });
+
+  const transformedProject = {
+    ...project,
+    status: project.status === "hold" ? "on hold" : project.status,
+    team: project.team || [],
+    clientProjects: clientProjectsWithDetails
+  };
+
+  res.status(200).json(transformedProject);
 });
 
 // Update project

@@ -2,80 +2,218 @@ import Task from "../models/Tasks.js";
 import Project from "../models/Projects.js";
 import mongoose from 'mongoose';
 import asyncHandler from 'express-async-handler';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+
+// Configure multer storage
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = path.join(process.cwd(), 'uploads/tasks');
+    fs.mkdirSync(uploadPath, { recursive: true });
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+// File filter for allowed types
+const fileFilter = (req, file, cb) => {
+  const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf'];
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Invalid file type. Only JPEG, PNG, and PDF are allowed'), false);
+  }
+};
+
+// Initialize multer with limits
+export const upload = multer({ 
+  storage: storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: fileFilter
+});
+
+
 
 // Helper function to transform task data
 const transformTaskData = (task) => {
-  return {
+  const transformed = {
     ...task.toObject(),
     formattedStartDate: task.startDate.toISOString().split('T')[0],
     formattedDueDate: task.dueDate.toISOString().split('T')[0]
   };
+
+  // Add file URLs if files exist
+  if (task.files && task.files.length > 0) {
+    transformed.files = task.files.map(file => ({
+      ...file,
+      url: `/api/tasks/${task._id}/files/${file._id}`
+    }));
+  }
+
+  return transformed;
 };
 
 // @desc    Create a new task
 // @route   POST /api/tasks
 // @access  Private (Project Manager)
+// @desc    Create a new task
+// @route   POST /api/tasks
+// @access  Private (Project Manager)
 export const createTask = asyncHandler(async (req, res) => {
-  const { 
-    title, 
-    description, 
-    status = 'Not Started',
-    priority = 'Medium',
-    startDate = new Date(),
-    dueDate, 
-    assignees, 
-    tags,
-    project
-  } = req.body;
-
-  // Validate required fields
-  if (!title || !dueDate || !tags || !assignees || !project) {
-    res.status(400);
-    throw new Error('Please provide all required fields');
-  }
-
-  // Validate project exists and user has access
-  const projectDoc = await Project.findById(project);
-  if (!projectDoc) {
-    res.status(404);
-    throw new Error('Project not found');
-  }
-
-  // Check if current user is project manager or admin
-  if (projectDoc.createdBy.toString() !== req.user._id.toString() && 
-      req.user.role !== 'admin') {
-    res.status(403);
-    throw new Error('Not authorized to create tasks for this project');
-  }
-
   try {
-    const task = new Task({
-      title,
-      description,
-      status,
-      priority,
-      startDate,
-      dueDate,
-      assignees,
-      tags,
-      project,
-      createdBy: req.user._id
-    });
+    // First ensure we have all required fields
+    const requiredFields = ['description', 'dueDate', 'project'];
+    const missingFields = requiredFields.filter(field => !req.body[field]);
+    
+    if (missingFields.length > 0) {
+      res.status(400);
+      throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+    }
 
+    // Validate project exists and user has access
+    const projectDoc = await Project.findById(req.body.project);
+    if (!projectDoc) {
+      res.status(404);
+      throw new Error('Project not found');
+    }
+
+    // Check authorization
+    if (projectDoc.createdBy.toString() !== req.user._id.toString() && 
+        req.user.role !== 'admin') {
+      res.status(403);
+      throw new Error('Not authorized to create tasks for this project');
+    }
+
+    // Process assignees - ensure it's an array
+    let assignees = [];
+    if (req.body.assignees) {
+      assignees = Array.isArray(req.body.assignees) 
+        ? req.body.assignees 
+        : [req.body.assignees];
+    }
+
+    // Validate at least one assignee
+    if (assignees.length === 0) {
+      res.status(400);
+      throw new Error('At least one assignee is required');
+    }
+
+    // Validate assignees are part of project team
+    const invalidAssignees = assignees.filter(assigneeId => 
+      !projectDoc.team.includes(assigneeId)
+    );
+    
+    if (invalidAssignees.length > 0) {
+      res.status(400);
+      throw new Error(`Users ${invalidAssignees.join(', ')} are not part of the project team`);
+    }
+
+    // Process tags - ensure it's an array (but now optional)
+    let tags = [];
+    if (req.body.tags) {
+      tags = Array.isArray(req.body.tags) 
+        ? req.body.tags 
+        : [req.body.tags];
+    }
+    // Removed: Validation for at least one tag
+
+    // Parse dates based on includeTime
+    const includeTime = req.body.includeTime || false;
+    const startDate = req.body.startDate ? new Date(req.body.startDate) : new Date();
+    const dueDate = new Date(req.body.dueDate);
+
+    // If not including time, strip time components
+    const parsedStartDate = includeTime 
+      ? startDate 
+      : new Date(startDate.setHours(0, 0, 0, 0));
+    const parsedDueDate = includeTime 
+      ? dueDate 
+      : new Date(dueDate.setHours(0, 0, 0, 0));
+
+    // Validate dates
+    if (parsedDueDate <= parsedStartDate) {
+      res.status(400);
+      throw new Error('Due date must be after start date');
+    }
+
+    if (projectDoc.deadline && parsedDueDate > new Date(projectDoc.deadline)) {
+      res.status(400);
+      throw new Error('Due date must be within project deadline');
+    }
+
+    if (parsedStartDate < new Date(projectDoc.startDate)) {
+      res.status(400);
+      throw new Error('Start date cannot be before project start date');
+    }
+
+    // Create task data object
+    const taskData = {
+      description: req.body.description,
+      status: req.body.status || 'Not Started',
+      priority: req.body.priority || 'Medium',
+      startDate: parsedStartDate,
+      dueDate: parsedDueDate,
+      assignees,
+      project: req.body.project,
+      includeTime,
+      createdBy: req.user._id,
+      files: req.files?.map(file => ({
+        name: file.originalname,
+        path: file.path,
+        size: file.size,
+        mimetype: file.mimetype,
+        uploadedBy: req.user._id
+      })) || []
+    };
+
+    // Only add tags if they exist
+    if (tags.length > 0) {
+      taskData.tags = tags;
+    }
+
+    const task = new Task(taskData);
     const createdTask = await task.save();
-    res.status(201).json(transformTaskData(createdTask));
+    
+    // Populate the assignees and createdBy fields for the response
+    const populatedTask = await Task.findById(createdTask._id)
+      .populate('assignees', 'name email')
+      .populate('createdBy', 'name');
+
+    res.status(201).json(transformTaskData(populatedTask));
   } catch (error) {
-    res.status(400);
-    throw new Error(`Failed to create task: ${error.message}`);
+    // Clean up uploaded files if error occurs
+    if (req.files && req.files.length > 0) {
+      req.files.forEach(file => {
+        if (fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+      });
+    }
+    
+    // Handle Mongoose validation errors specifically
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(val => val.message);
+      res.status(400);
+      throw new Error(messages.join(', '));
+    }
+    
+    // Handle other errors
+    res.status(error.statusCode || 400);
+    throw new Error(error.message || 'Failed to create task');
   }
 });
+
+
 
 // @desc    Get all tasks (with filters)
 // @route   GET /api/tasks
 // @access  Private
 export const getTasks = asyncHandler(async (req, res) => {
   try {
-    // Build query based on user role and request params
     let query = {};
     
     // For non-admins, only show tasks they're assigned to or created
@@ -86,15 +224,10 @@ export const getTasks = asyncHandler(async (req, res) => {
       ];
     }
 
-    // Apply project filter if provided
-    if (req.query.project) {
-      query.project = req.query.project;
-    }
-
-    // Apply status filter if provided
-    if (req.query.status) {
-      query.status = req.query.status;
-    }
+    // Apply filters
+    if (req.query.project) query.project = req.query.project;
+    if (req.query.status) query.status = req.query.status;
+    if (req.query.priority) query.priority = req.query.priority;
 
     const tasks = await Task.find(query)
       .populate("assignees", "name email role")
@@ -132,8 +265,7 @@ export const getTask = asyncHandler(async (req, res) => {
 
   // Check access rights
   if (req.user.role !== 'admin' && 
-      !task.assignees.some(a => a._id.equals(req.user._id)) && 
-      !task.createdBy.equals(req.user._id)) {
+      !task.assignees.some(a => a._id.equals(req.user._id))) {
     res.status(403);
     throw new Error('Not authorized to access this task');
   }
@@ -153,13 +285,12 @@ export const updateTask = asyncHandler(async (req, res) => {
   }
 
   const task = await Task.findById(id);
-  
   if (!task) {
     res.status(404);
     throw new Error('Task not found');
   }
 
-  // Check if user is task creator or admin
+  // Check authorization
   if (task.createdBy.toString() !== req.user._id.toString() && 
       req.user.role !== 'admin') {
     res.status(403);
@@ -167,36 +298,40 @@ export const updateTask = asyncHandler(async (req, res) => {
   }
 
   const { 
-    title, 
     description, 
     status, 
     priority, 
     startDate, 
     dueDate, 
     assignees, 
-    tags 
+    tags,
+    includeTime
   } = req.body;
 
-  // Validate due date if provided
+  // Update fields if provided
+  if (description !== undefined) task.description = description;
+  if (status) task.status = status;
+  if (priority) task.priority = priority;
+  if (includeTime !== undefined) task.includeTime = includeTime;
+
+  // Handle dates
+  if (startDate) {
+    task.startDate = task.includeTime ? new Date(startDate) : new Date(new Date(startDate).setHours(0, 0, 0, 0));
+  }
   if (dueDate) {
-    const start = startDate ? new Date(startDate) : task.startDate;
-    const due = new Date(dueDate);
-    
-    if (due <= start) {
+    const newDueDate = task.includeTime ? new Date(dueDate) : new Date(new Date(dueDate).setHours(0, 0, 0, 0));
+    if (newDueDate <= task.startDate) {
       res.status(400);
       throw new Error('Due date must be after start date');
     }
-    task.dueDate = due;
+    task.dueDate = newDueDate;
   }
 
-  // Update fields if provided
-  if (title) task.title = title;
-  if (description) task.description = description;
-  if (status) task.status = status;
-  if (priority) task.priority = priority;
-  if (startDate) task.startDate = new Date(startDate);
-  if (tags) task.tags = tags;
-  
+  // Update tags if provided
+  if (tags) {
+    task.tags = Array.isArray(tags) ? tags : [tags];
+  }
+
   // Update assignees if provided
   if (assignees) {
     if (!Array.isArray(assignees)) {
@@ -241,20 +376,30 @@ export const deleteTask = asyncHandler(async (req, res) => {
   }
 
   const task = await Task.findById(id);
-
   if (!task) {
     res.status(404);
     throw new Error('Task not found');
   }
 
-  // Check if user is task creator or admin
+  // Check authorization
   if (task.createdBy.toString() !== req.user._id.toString() && 
       req.user.role !== 'admin') {
     res.status(403);
     throw new Error('Not authorized to delete this task');
   }
 
-  await task.remove();
+  // First, delete associated files
+  if (task.files && task.files.length > 0) {
+    task.files.forEach(file => {
+      if (fs.existsSync(file.path)) {
+        fs.unlinkSync(file.path); // Delete the file from storage
+      }
+    });
+  }
+
+  // Use deleteOne() instead of remove()
+  await Task.deleteOne({ _id: id });
+  
   res.json({ message: 'Task removed successfully' });
 });
 
@@ -385,4 +530,41 @@ export const updateStatus = asyncHandler(async (req, res) => {
 
   const updatedTask = await task.save();
   res.json(transformTaskData(updatedTask));
+});
+
+
+
+export const downloadFile = asyncHandler(async (req, res) => {
+  const { id, fileId } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(fileId)) {
+    res.status(400);
+    throw new Error('Invalid ID format');
+  }
+
+  const task = await Task.findById(id);
+  if (!task) {
+    res.status(404);
+    throw new Error('Task not found');
+  }
+
+  // Check authorization
+  if (req.user.role !== 'admin' && 
+      !task.assignees.some(a => a.equals(req.user._id))) {
+    res.status(403);
+    throw new Error('Not authorized to access this file');
+  }
+
+  const file = task.files.id(fileId);
+  if (!file) {
+    res.status(404);
+    throw new Error('File not found');
+  }
+
+  if (!fs.existsSync(file.path)) {
+    res.status(404);
+    throw new Error('File not found on server');
+  }
+
+  res.download(file.path, file.name);
 });
